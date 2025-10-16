@@ -15,6 +15,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 import string
+from reportlab.lib.utils import ImageReader
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev_key')
@@ -116,12 +117,56 @@ def add_user(username, password):
         with get_db_connection() as conn:
             c = conn.cursor()
             hashed = generate_password_hash(password)
-            c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed))
+c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed))
             conn.commit()
-        return True
+            return True
+def get_tiles(page=1, per_page=20, supplier=None, style=None, min_price=None, max_price=None, search=None, color_group=None, min_quantity=None):
+    # Minimal safe implementation: return an empty list if DB connection/query helpers are missing.
+    # Replace with a real DB query as needed.
+    try:
+        # If a database helper exists, attempt to query; otherwise return empty list.
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            query = "SELECT * FROM tiles WHERE 1=1"
+            params = []
+            if supplier:
+                query += " AND supplier = ?"
+                params.append(supplier)
+            if style:
+                query += " AND style = ?"
+                params.append(style)
+            if color_group:
+                query += " AND color_group = ?"
+                params.append(color_group)
+            if min_quantity is not None:
+                query += " AND quantity >= ?"
+                params.append(min_quantity)
+            if min_price is not None:
+                query += " AND price >= ?"
+                params.append(min_price)
+            if max_price is not None:
+                query += " AND price <= ?"
+                params.append(max_price)
+            if search:
+                query += " AND (name LIKE ? OR description LIKE ? OR torino_code LIKE ?)"
+                like = f"%{search}%"
+                params.extend([like, like, like])
+            query += " LIMIT ? OFFSET ?"
+            params.extend([per_page, (page - 1) * per_page])
+            c.execute(query, tuple(params))
+            rows = c.fetchall()
+            # Convert sqlite3.Row objects to dicts if needed
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logging.error(f"get_tiles error: {e}")
+        return []
+        logging.warning("User already exists.")
+        return False
     except sqlite3.Error as e:
         logging.error(f"DB add_user error: {e}")
-return False
+        return False
+
+def get_tiles(page=1, per_page=20, supplier=None, style=None, min_price=None, max_price=None, search=None, color_group=None, min_quantity=None):
 
 def generate_sticker_pdf(torino_code):
     tile = get_tile_by_code(torino_code)
@@ -129,31 +174,53 @@ def generate_sticker_pdf(torino_code):
         return None
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+    page_w, page_h = letter
+
     label_width = 2.63 * inch
-    label_height = 1 * inch
+    label_height = 1.0 * inch
     cols, rows = 3, 4
+    margin_left = 0.25 * inch
+    margin_top = 0.75 * inch
+    qr_size_in = 0.8 * inch
+    qr_px = int(qr_size_in)  # size in pixels for PIL resize (reportlab handles inches later via drawImage size)
+
     for row in range(rows):
         for col in range(cols):
-            x = 0.25 * inch + col * label_width
-            y = height - 0.5 * inch - row * label_height
-            qr = qrcode.QRCode(version=1, box_size=5, border=1)
+            x = margin_left + col * label_width
+            y = page_h - margin_top - row * label_height
+
+            # generate QR as PNG in-memory
+            qr = qrcode.QRCode(version=1, box_size=4, border=1)
             qr.add_data(torino_code)
             qr.make(fit=True)
-            qr_img = qr.make_image(fill_color="black", back_color="white")
+            qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            # Resize to desired pixel size for decent rendering
+            qr_img = qr_img.resize((int(qr_size_in), int(qr_size_in)))
             qr_buffer = BytesIO()
-            qr_img.save(qr_buffer, format='PNG')
+            qr_img.save(qr_buffer, format="PNG")
             qr_buffer.seek(0)
-            qr_pil = Image.open(qr_buffer)
-            qr_pil = qr_pil.resize((80, 80))
-            qr_pil.save(qr_buffer, format='PNG')
-            qr_buffer.seek(0)
-            p.drawImage(qr_buffer, x, y - 0.8 * inch, width=0.8 * inch, height=0.8 * inch)
+
+            img_reader = ImageReader(qr_buffer)
+            # draw QR
+            p.drawImage(img_reader, x, y - qr_size_in, width=qr_size_in, height=qr_size_in, preserveAspectRatio=True, mask='auto')
+
+            # text fields (safe defaults)
+            name = (tile.get('name') or '')[:30]
+            price = tile.get('price')
+            size = tile.get('size') or ''
+            try:
+                price_text = f"${float(price):.2f}/sq ft" if price is not None else ""
+            except Exception:
+                price_text = ""
+
+            text_x = x + qr_size_in + 6  # small gap after QR
             p.setFont("Helvetica-Bold", 10)
-            p.drawString(x, y - 0.95 * inch, tile['name'][:30])
+            p.drawString(text_x, y - 0.15 * inch, name)
             p.setFont("Helvetica", 8)
-            p.drawString(x, y - 1.05 * inch, f"${tile['price']:.2f}/sq ft | {tile['size']}")
-            p.drawString(x, y - 1.15 * inch, torino_code)
+            p.drawString(text_x, y - 0.35 * inch, f"{price_text} | {size}".strip(" | "))
+            p.drawString(text_x, y - 0.55 * inch, torino_code)
+
+    p.showPage()
     p.save()
     buffer.seek(0)
     return buffer
