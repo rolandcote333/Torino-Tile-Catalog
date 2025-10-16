@@ -121,7 +121,7 @@ c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, has
             conn.commit()
             return True
 def get_tiles(page=1, per_page=20, supplier=None, style=None, min_price=None, max_price=None, search=None, color_group=None, min_quantity=None):
-    # Minimal safe implementation: return an empty list if DB connection/query helpers are missing.
+return False
     # Replace with a real DB query as needed.
     try:
         # If a database helper exists, attempt to query; otherwise return empty list.
