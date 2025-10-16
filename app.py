@@ -121,7 +121,7 @@ def add_user(username, password):
         return True
     except sqlite3.Error as e:
         logging.error(f"DB add_user error: {e}")
-              return False
+return False
 
 def generate_sticker_pdf(torino_code):
     tile = get_tile_by_code(torino_code)
