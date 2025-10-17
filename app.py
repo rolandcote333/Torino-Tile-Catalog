@@ -120,14 +120,18 @@
 #             c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed))
 #             conn.commit()
 #             return True
-# def get_tiles(page=1, per_page=20, supplier=None, style=None, min_price=None, max_price=None, search=None, color_group=None, min_quantity=None):
 #     try:
-#         with get_db_connection() as conn:
-#             c = conn.cursor()
-#             query = "SELECT * FROM tiles WHERE 1=1"
-#             params = []
-#             if supplier:
-#                 query += " AND supplier = ?"
+with get_db_connection() as conn:
+            c = conn.cursor()
+            c.execute("INSERT INTO projects (torino_code, client_id, client_name, address, sq_ft, install_date, installer_fee, budget, schedule, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (torino_code, client_id, client_name, address, sq_ft, install_date, installer_fee, budget, schedule, notes, datetime.now().isoformat()))
+            proj_id = c.lastrowid
+            c.execute("UPDATE tiles SET quantity = quantity - ? WHERE torino_code = ?", (sq_ft / tile['sqft_per_box'], torino_code))
+            conn.commit()
+return proj_id
+except sqlite3.Error as e:
+logging.error(f"DB add_project error: {e}")
+return False
 #                 params.append(supplier)
 #             if style:
 #                 query += " AND style = ?"
