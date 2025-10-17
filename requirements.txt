@@ -1,0 +1,6 @@
+Flask>=2.2,<3
+Werkzeug>=2.2,<3
+# Optional packages for QR/Image/PDF features
+qrcode>=7.3
+Pillow>=9.0
+reportlab>=4.0
