@@ -1,9 +1,10 @@
-from flask import Flask, request, redirect, session, url_for
-from werkzeug.security import generate_password_hash, check_password_hash
+import logging
+import os
 import sqlite3
 from datetime import datetime
-import os
-import logging
+
+from flask import Flask, request, redirect, session, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # configure logging early so optional-import warnings appear properly
 logging.basicConfig(level=logging.DEBUG)
@@ -35,17 +36,27 @@ except ImportError:
     logging.warning(
         "Optional package 'reportlab' not installed; PDF features disabled."
     )
-    logging.warning(
-        "Optional package 'reportlab' not installed; PDF features disabled."
-    )
 
 # Application and DB setup
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(APP_DIR, "torino.db")
+# Allow overriding database via env var (PythonAnywhere convenience)
+DATABASE = os.environ.get("DATABASE", os.path.join(APP_DIR, "torino.db"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev_key")
-logging.basicConfig(level=logging.DEBUG)
+
+
+def _ensure_db_path():
+    """Ensure the directory for DATABASE exists and is writable."""
+    d = os.path.dirname(DATABASE)
+    if d and not os.path.exists(d):
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            logging.exception(f"Unable to create DB directory: {d}")
+
+
+_ensure_db_path()
 
 
 def get_db_connection():
@@ -135,6 +146,28 @@ def init_db():
                 ("admin", generate_password_hash("password")),
             )
             conn.commit()
+            # seed a sample tile if none exist so the showroom is not empty
+            c.execute("SELECT COUNT(1) as cnt FROM tiles")
+            row = c.fetchone()
+            if row and row[0] == 0:
+                c.execute(
+                    "INSERT INTO tiles (name, price, description, supplier, sqft_per_box, style, size, torino_code, quantity, created_at, image, color_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "Sample Tile",
+                        1.0,
+                        "Sample tile for demo",
+                        "DemoSupplier",
+                        10.0,
+                        "SampleStyle",
+                        "12x12",
+                        "SAMPLE-001",
+                        100,
+                        datetime.now().isoformat(),
+                        None,
+                        "White",
+                    ),
+                )
+                conn.commit()
     except sqlite3.Error as e:
         logging.error(f"DB init error: {e}")
         raise
